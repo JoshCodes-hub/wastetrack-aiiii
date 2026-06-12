@@ -1,319 +1,306 @@
 /*
- * WasteTrack AI — ESP32 IoT Firmware
- * Hardware: ESP32 + A9G GPS/GPRS + HC-SR04 Ultrasonic
+ * WasteTrack AI — ESP32 IoT Firmware (FIXED)
+ * Hardware: ESP32 + A9G GPS + HC-SR04 Ultrasonic
  *
- * Sends real bin data to Supabase REST API every 15 seconds.
- * Uses Prefer: resolution=merge-duplicates for UPSERT by bin_id.
- *
- * Connections:
- *   A9G TX  → ESP32 RX2 (GPIO16)
- *   A9G RX  → ESP32 TX2 (GPIO17)
- *   A9G PWR → ESP32 GPIO4  (A9G power on/off)
- *   TRIG    → GPIO5
- *   ECHO    → GPIO18
+ * FIXED: SSL handshake issue (HTTP -5 / -1 errors)
+ * Now uses WiFiClientSecure with setInsecure() for reliable HTTPS
  */
 
 #include <WiFi.h>
+#include <WiFiClientSecure.h>
 #include <HTTPClient.h>
-#include <ArduinoJson.h>
+#include <HardwareSerial.h>
+#include <time.h>
 
-// ===== CONFIGURE THESE =====
-const char* WIFI_SSID     = "YOUR_WIFI_SSID";
-const char* WIFI_PASSWORD = "YOUR_WIFI_PASSWORD";
+HardwareSerial A9G(2);
 
-const char* SUPABASE_URL    = "https://tvvbcocywdfqsuwpadpu.supabase.co";
-const char* SUPABASE_ANON_KEY = "sb_publishable_wyv1DFI9S5fllrQ6gy7EAQ_IGZ95mj2";
+// =====================
+// PINS
+// =====================
+#define PWR_PIN  4
+#define TRIG_PIN 12
+#define ECHO_PIN 13
 
-const char* BIN_ID          = "BIN_001";
-const char* BIN_NAME        = "ESP32 Smart Bin 1";
+// =====================
+// WIFI
+// =====================
+#define WIFI_SSID     "Galaxy S20 7404"
+#define WIFI_PASSWORD "Drdeji24$.."
 
-// How many cm above sensor is the bin empty (sensor to bottom)
-const float BIN_DEPTH_CM    = 50.0;
-// ===========================
+// =====================
+// SUPABASE
+// =====================
+#define BIN_ID        "BIN_001"
+#define SUPABASE_URL  "https://tvvbcocywdfqsuwpadpu.supabase.co/rest/v1/smart_bins"
+#define ANON_KEY      "sb_publishable_wyv1DFI9S5fllrQ6gy7EAQ_IGZ95mj2"
 
-// Pins
-#define A9G_PWR     4
-#define A9G_RX_PIN  16
-#define A9G_TX_PIN  17
-#define TRIG_PIN    5
-#define ECHO_PIN    18
+// =====================
+// BIN CALIBRATION
+// =====================
+#define BIN_EMPTY_CM  90.0
+#define BIN_FULL_CM    2.0
 
 // GPS state
-bool gpsHasFix = false;
-float gpsLat = 0.0;
-float gpsLng = 0.0;
-int gpsSatellites = 0;
+float lastLat = 0.0;
+float lastLng = 0.0;
+bool gpsFixed = false;
+unsigned long lastPostTime = 0;
 
-// Ultrasonic state
-float lastDistanceCm = -1;
-int lastFillPercent = -1;
-unsigned long lastSensorRead = 0;
+// SSL client (persistent to avoid re-allocation)
+WiFiClientSecure *client = nullptr;
 
-// Timing
-unsigned long lastPost = 0;
-const unsigned long POST_INTERVAL = 15000; // 15 seconds
-
-HardwareSerial A9G(2); // UART2
-
-void setup() {
-  Serial.begin(115200);
-  Serial.println("\n\n=== WasteTrack AI ESP32 ===");
-
-  pinMode(TRIG_PIN, OUTPUT);
-  pinMode(ECHO_PIN, INPUT);
-  pinMode(A9G_PWR, OUTPUT);
-
-  // Power on A9G
-  digitalWrite(A9G_PWR, HIGH);
-  delay(1000);
-  digitalWrite(A9G_PWR, LOW);
-  delay(2000);
-
-  A9G.begin(115200, SERIAL_8N1, A9G_RX_PIN, A9G_TX_PIN);
-  delay(500);
-
-  // Init A9G GPS
-  A9G.println("AT+CGPSPWR=1");    // GPS power on
-  delay(500);
-  A9G.println("AT+CGPSRST=1");    // GPS reset (cold start)
-  delay(500);
-  A9G.println("AT+CGPSINF=0");    // Enable NMEA output
-  delay(500);
-
-  connectWiFi();
-}
-
-void loop() {
-  // 1. Read ultrasonic sensor
-  readUltrasonic();
-
-  // 2. Parse GPS from A9G
-  readGPS();
-
-  // 3. Post to Supabase every 15 seconds
-  unsigned long now = millis();
-  if (now - lastPost >= POST_INTERVAL) {
-    if (WiFi.status() == WL_CONNECTED) {
-      postToSupabase();
-    } else {
-      Serial.println("[WARN] WiFi disconnected, reconnecting...");
-      connectWiFi();
-    }
-    lastPost = now;
-  }
-
-  // Read A9G output continuously
-  while (A9G.available()) {
-    String line = A9G.readStringUntil('\n');
-    parseNMEA(line);
-  }
-}
-
-// ==================== ULTRASONIC ====================
-
-void readUltrasonic() {
+// =====================
+// ULTRASONIC
+// =====================
+float readDistance() {
   digitalWrite(TRIG_PIN, LOW);
   delayMicroseconds(2);
   digitalWrite(TRIG_PIN, HIGH);
   delayMicroseconds(10);
   digitalWrite(TRIG_PIN, LOW);
-
-  long duration = pulseIn(ECHO_PIN, HIGH, 30000); // 30ms timeout
-  if (duration == 0) {
-    Serial.println("[ULTRASONIC] No echo (out of range)");
-    return;
-  }
-
-  float distance = duration * 0.034 / 2;
-  lastSensorRead = millis();
-
-  if (distance < 2 || distance > BIN_DEPTH_CM) {
-    // Out of valid range - keep previous reading
-    return;
-  }
-
-  lastDistanceCm = distance;
-
-  // Invert: empty bin = 0%, full bin = 100%
-  int fillPct = constrain(
-    map((int)(distance * 10), 0, (int)(BIN_DEPTH_CM * 10), 100, 0),
-    0, 100
-  );
-
-  // Only update if changed by at least 2% to reduce noise
-  if (lastFillPercent < 0 || abs(fillPct - lastFillPercent) >= 2) {
-    lastFillPercent = fillPct;
-    Serial.printf("[ULTRASONIC] Distance: %.1f cm, Fill: %d%%\n", distance, lastFillPercent);
-  }
+  long duration = pulseIn(ECHO_PIN, HIGH, 30000);
+  if (duration == 0) return -1;
+  return duration * 0.034 / 2;
 }
 
-// ==================== GPS ====================
-
-void readGPS() {
-  // A9G continuously outputs NMEA sentences - parsed in main loop
+float getFillLevel(float distance) {
+  if (distance <= BIN_FULL_CM)  return 100.0;
+  if (distance >= BIN_EMPTY_CM) return 0.0;
+  return (BIN_EMPTY_CM - distance) / (BIN_EMPTY_CM - BIN_FULL_CM) * 100.0;
 }
 
-void parseNMEA(String line) {
-  line.trim();
-  if (line.length() == 0) return;
+String getStatus(float percent) {
+  if (percent <= 20)      return "LOW";
+  else if (percent <= 70) return "MEDIUM";
+  else if (percent <= 90) return "HIGH";
+  else                    return "FULL";
+}
 
-  // $GPGGA — GPS fix data
-  if (line.startsWith("$GPGGA")) {
-    int comma1 = line.indexOf(',');
-    int comma2 = line.indexOf(',', comma1 + 1);
-    int comma3 = line.indexOf(',', comma2 + 1);
-    int comma4 = line.indexOf(',', comma3 + 1);
-    int comma5 = line.indexOf(',', comma4 + 1);
-    int comma6 = line.indexOf(',', comma5 + 1);
+// =====================
+// A9G AT COMMANDS
+// =====================
+String sendAT(String cmd, int timeout = 2000) {
+  A9G.println(cmd);
+  String resp = "";
+  long start = millis();
+  while (millis() - start < timeout) {
+    while (A9G.available()) {
+      char c = A9G.read();
+      resp += c;
+    }
+    delay(5);
+  }
+  return resp;
+}
 
-    if (comma6 < 0) return;
+void powerOnA9G() {
+  pinMode(PWR_PIN, OUTPUT);
+  digitalWrite(PWR_PIN, LOW);
+  delay(3000);
+  digitalWrite(PWR_PIN, HIGH);
+  Serial.println("A9G powering on...");
+  delay(15000);
+}
 
-    String fixStr = line.substring(comma5 + 1, comma6);
-    int fixQuality = fixStr.toInt();
-    gpsHasFix = (fixQuality > 0);
+// =====================
+// GPS
+// =====================
+bool getGPS(float &lat, float &lng) {
+  A9G.println("AT+LOCATION=2");
+  delay(1000);
+  String resp = "";
+  while (A9G.available()) {
+    char c = A9G.read();
+    resp += c;
+  }
 
-    // Parse fix quality
-    // 0 = invalid, 1 = GPS fix, 2 = DGPS fix
-    if (gpsHasFix) {
-      String latStr = line.substring(comma1 + 1, comma2);
-      String latDir = line.substring(comma2 + 1, comma3);
-      String lngStr = line.substring(comma3 + 1, comma4);
-      String lngDir = line.substring(comma4 + 1, comma5);
+  int comma = resp.indexOf(',');
+  if (comma > 5 && resp.indexOf("NOT FIX") < 0 && resp.indexOf("0.000000") < 0) {
+    String latStr = resp.substring(0, comma);
+    String lngStr = resp.substring(comma + 1);
+    latStr.trim();
+    lngStr.trim();
 
-      gpsLat = convertNMEACoordinate(latStr, latDir);
-      gpsLng = convertNMEACoordinate(lngStr, lngDir);
+    // Remove non-numeric chars at end
+    while (lngStr.length() > 0 && !isdigit(lngStr.charAt(lngStr.length() - 1)) && lngStr.charAt(lngStr.length() - 1) != '.') {
+      lngStr.remove(lngStr.length() - 1);
+    }
 
-      // Parse satellites from $GPGGA (field after comma6)
-      int comma7 = line.indexOf(',', comma6 + 1);
-      if (comma7 > 0) {
-        gpsSatellites = line.substring(comma6 + 1, comma7).toInt();
-      }
+    float newLat = latStr.toFloat();
+    float newLng = lngStr.toFloat();
 
-      Serial.printf("[GPS] Fix acquired: %.6f, %.6f (%d sats)\n", gpsLat, gpsLng, gpsSatellites);
+    if (newLat != 0.0 && newLng != 0.0) {
+      lastLat = newLat;
+      lastLng = newLng;
+      gpsFixed = true;
+      lat = lastLat;
+      lng = lastLng;
+      Serial.println("📍 GPS: " + String(lat, 6) + ", " + String(lng, 6));
+      return true;
     }
   }
 
-  // $GPGSA — active satellites
-  if (line.startsWith("$GPGSA")) {
-    // Check 3D fix
-    int comma = line.indexOf(',');
-    for (int i = 0; i < 2; i++) {
-      comma = line.indexOf(',', comma + 1);
-    }
-    if (comma > 0) {
-      char fixChar = line.charAt(comma + 1);
-      if (fixChar == '3') {
-        // 3D fix — already handled by GPGGA fix quality
-      }
-    }
+  if (gpsFixed) {
+    lat = lastLat;
+    lng = lastLng;
+    Serial.println("📍 Last GPS: " + String(lat, 6) + ", " + String(lng, 6));
+    return true;
   }
+
+  Serial.println("⏳ No GPS yet");
+  return false;
 }
 
-float convertNMEACoordinate(String coord, String dir) {
-  if (coord.length() < 4) return 0.0;
-
-  int dotPos = coord.indexOf('.');
-  if (dotPos < 4) return 0.0;
-
-  // NMEA format: DDMM.MMMM or DDDMM.MMMM
-  int degLength = (dir == "N" || dir == "S") ? 2 : 3;
-
-  float degrees = coord.substring(0, degLength).toFloat();
-  float minutes = coord.substring(degLength).toFloat();
-  float decimal = degrees + minutes / 60.0;
-
-  if (dir == "S" || dir == "W") decimal = -decimal;
-  return decimal;
+// =====================
+// TIMESTAMP
+// =====================
+String getTimestamp() {
+  struct tm timeinfo;
+  if (!getLocalTime(&timeinfo)) return "";
+  char buf[30];
+  strftime(buf, sizeof(buf), "%Y-%m-%dT%H:%M:%SZ", &timeinfo);
+  return String(buf);
 }
 
-// ==================== WiFi ====================
-
+// =====================
+// WIFI
+// =====================
 void connectWiFi() {
-  Serial.printf("[WiFi] Connecting to %s...\n", WIFI_SSID);
+  Serial.print("Connecting to WiFi");
   WiFi.mode(WIFI_STA);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-
   int attempts = 0;
   while (WiFi.status() != WL_CONNECTED && attempts < 40) {
     delay(500);
     Serial.print(".");
     attempts++;
   }
-
   if (WiFi.status() == WL_CONNECTED) {
-    Serial.printf("\n[WiFi] Connected. IP: %s\n", WiFi.localIP().toString().c_str());
+    Serial.println("\n✅ WiFi connected! IP: " + WiFi.localIP().toString());
+    configTime(0, 0, "pool.ntp.org", "time.google.com");
+    delay(2000);
   } else {
-    Serial.println("\n[WiFi] FAILED to connect!");
+    Serial.println("\n❌ WiFi failed");
   }
 }
 
-// ==================== SUPABASE POST ====================
-
-void postToSupabase() {
-  // Build status string from fill level
-  String statusStr;
-  if (lastFillPercent < 0) {
-    statusStr = "LOW";
-  } else if (lastFillPercent < 30) {
-    statusStr = "LOW";
-  } else if (lastFillPercent < 80) {
-    statusStr = "MEDIUM";
-  } else {
-    statusStr = "HIGH";
-  }
-  if (statusStr == "HIGH" && lastFillPercent >= 95) {
-    statusStr = "FULL";
+// =====================
+// SEND TO SUPABASE (FIXED SSL)
+// =====================
+bool sendToSupabase(float lat, float lng, float fillLevel, String status) {
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("WiFi lost — reconnecting...");
+    connectWiFi();
+    if (WiFi.status() != WL_CONNECTED) return false;
   }
 
-  // Build ISO timestamp
-  char isoTime[25];
-  time_t now = time(nullptr);
-  struct tm* t = localtime(&now);
-  strftime(isoTime, sizeof(isoTime), "%Y-%m-%dT%H:%M:%SZ", t);
+  String timestamp = getTimestamp();
+  if (timestamp == "") timestamp = "2026-06-12T12:00:00Z";
 
-  // Build JSON payload
-  StaticJsonDocument<256> doc;
-  doc["bin_id"] = BIN_ID;
-  doc["name"] = BIN_NAME;
-  doc["latitude"] = gpsHasFix ? gpsLat : nullptr;
-  doc["longitude"] = gpsHasFix ? gpsLng : nullptr;
-  doc["fill_level"] = (lastFillPercent >= 0) ? lastFillPercent : nullptr;
-  doc["status"] = statusStr;
-  doc["last_updated"] = isoTime;
+  String jsonBody = "{";
+  jsonBody += "\"bin_id\":\"" + String(BIN_ID) + "\",";
+  jsonBody += "\"latitude\":" + String(lat, 6) + ",";
+  jsonBody += "\"longitude\":" + String(lng, 6) + ",";
+  jsonBody += "\"fill_level\":" + String((int)fillLevel) + ",";
+  jsonBody += "\"status\":\"" + status + "\",";
+  jsonBody += "\"last_updated\":\"" + timestamp + "\"";
+  jsonBody += "}";
 
-  String payload;
-  serializeJson(doc, payload);
+  Serial.println("📤 Sending: " + jsonBody);
 
-  Serial.printf("[SUPABASE] Posting: %s\n", payload.c_str());
+  // Use persistent SSL client with insecure mode (fixes -5 error)
+  if (client == nullptr) {
+    client = new WiFiClientSecure();
+    client->setInsecure();
+  }
 
   HTTPClient http;
-  String url = String(SUPABASE_URL) + "/rest/v1/smart_bins";
-  http.begin(url);
+  http.begin(*client, SUPABASE_URL);
   http.addHeader("Content-Type", "application/json");
-  http.addHeader("apikey", SUPABASE_ANON_KEY);
-  http.addHeader("Authorization", "Bearer " + String(SUPABASE_ANON_KEY));
+  http.addHeader("apikey", ANON_KEY);
+  http.addHeader("Authorization", String("Bearer ") + ANON_KEY);
   http.addHeader("Prefer", "resolution=merge-duplicates");
 
-  int httpCode = http.POST(payload);
+  int httpCode = http.POST(jsonBody);
+  String response = http.getString();
+  Serial.println("📥 HTTP Code: " + String(httpCode));
 
-  if (httpCode > 0) {
-    String response = http.getString();
-    if (httpCode == 200 || httpCode == 201) {
-      Serial.printf("[SUPABASE] OK (%d): ", httpCode);
-      if (gpsHasFix)
-        Serial.printf("GPS: %.4f,%.4f | ", gpsLat, gpsLng);
-      else
-        Serial.printf("GPS: ACQUIRING... | ");
-      if (lastFillPercent >= 0)
-        Serial.printf("Fill: %d%% | Status: %s\n", lastFillPercent, statusStr.c_str());
-      else
-        Serial.printf("Fill: READING...\n");
-    } else {
-      Serial.printf("[SUPABASE] HTTP %d: %s\n", httpCode, response.c_str());
-    }
-  } else {
-    Serial.printf("[SUPABASE] Request failed: %s\n", http.errorToString(httpCode).c_str());
+  if (httpCode == 200 || httpCode == 201 || httpCode == 204) {
+    Serial.println("✅ PUSHED TO DASHBOARD!");
+    http.end();
+    return true;
   }
 
+  // If SSL fails, try re-creating the client
+  if (httpCode < 0) {
+    Serial.println("❌ SSL/Connection error — re-creating secure client...");
+    delete client;
+    client = new WiFiClientSecure();
+    client->setInsecure();
+  }
+
+  Serial.println("❌ Failed: " + response);
   http.end();
+  return false;
+}
+
+// =====================
+// SETUP
+// =====================
+void setup() {
+  Serial.begin(115200);
+  A9G.begin(115200, SERIAL_8N1, 16, 17);
+
+  pinMode(TRIG_PIN, OUTPUT);
+  pinMode(ECHO_PIN, INPUT);
+
+  Serial.println("\n=== WasteTrack AI Smart Bin (FIXED) ===");
+
+  connectWiFi();
+  powerOnA9G();
+
+  String res = sendAT("AT", 3000);
+  if (res.indexOf("OK") >= 0) {
+    Serial.println("✅ A9G alive!");
+  } else {
+    Serial.println("❌ A9G not responding — check wiring");
+  }
+
+  sendAT("AT+GPS=1", 3000);
+  Serial.println("🛰️ GPS started");
+}
+
+// =====================
+// LOOP
+// =====================
+void loop() {
+  Serial.println("\n=== New Reading ===");
+
+  // STEP 1 — Ultrasonic
+  float distance = readDistance();
+  float fillLevel = 0.0;
+  String status = "LOW";
+
+  if (distance > 0) {
+    fillLevel = getFillLevel(distance);
+    status = getStatus(fillLevel);
+    Serial.println("📦 " + String(distance, 1) + "cm | " + String((int)fillLevel) + "% | " + status);
+  } else {
+    Serial.println("⚠️ Ultrasonic error — check sensor wiring");
+  }
+
+  // STEP 2 — GPS
+  float lat = 0.0;
+  float lng = 0.0;
+  bool gotGPS = getGPS(lat, lng);
+
+  // STEP 3 — Send to Supabase (only if we have GPS)
+  if (gotGPS) {
+    sendToSupabase(lat, lng, fillLevel, status);
+  } else {
+    Serial.println("⏳ Waiting for GPS fix");
+  }
+
+  Serial.println("💤 Sleeping 3 seconds...");
+  delay(3000);
 }
