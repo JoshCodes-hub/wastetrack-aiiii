@@ -53,8 +53,8 @@ export interface SmartBin {
   id: string;
   bin_id: string;
   name: string;
-  latitude: number;
-  longitude: number;
+  latitude?: number | null;
+  longitude?: number | null;
   fill_level: number;
   status: BinStatus;
   last_updated: string;

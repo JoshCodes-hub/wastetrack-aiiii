@@ -46,9 +46,9 @@ CREATE TABLE IF NOT EXISTS smart_bins (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   bin_id TEXT UNIQUE NOT NULL,
   name TEXT NOT NULL,
-  latitude DOUBLE PRECISION NOT NULL,
-  longitude DOUBLE PRECISION NOT NULL,
-  fill_level INTEGER NOT NULL DEFAULT 0,
+  latitude DOUBLE PRECISION,
+  longitude DOUBLE PRECISION,
+  fill_level INTEGER DEFAULT 0,
   status TEXT NOT NULL DEFAULT 'empty' CHECK (status IN ('empty', 'half_full', 'full')),
   last_updated TIMESTAMPTZ DEFAULT NOW(),
   created_at TIMESTAMPTZ DEFAULT NOW()

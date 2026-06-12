@@ -53,6 +53,10 @@ export default function MapView({
   const reportMap = new Map(reports.map(r => [r.id, r]));
   const cleanerMap = new Map(cleaners.map(c => [c.id, c]));
 
+  const binsWithGps = bins.filter(b => b.latitude != null && b.longitude != null);
+  const anyGps = binsWithGps.length > 0;
+  const dynamicCenter = center || (anyGps ? [binsWithGps[0].latitude!, binsWithGps[0].longitude!] : [6.5244, 3.3792]);
+
   const routes: { from: [number, number]; to: [number, number]; label: string }[] = [];
 
   for (const a of assignments) {
@@ -72,7 +76,16 @@ export default function MapView({
 
   return (
     <div style={{ height, width: "100%" }} className="rounded-2xl overflow-hidden shadow-lg border border-green-100">
-      <MapContainer center={center} zoom={zoom} style={{ height: "100%", width: "100%" }}>
+      {!anyGps && bins.length > 0 ? (
+        <div className="w-full h-full rounded-2xl flex items-center justify-center" style={{ background: "var(--card-bg)" }}>
+          <div className="text-center">
+            <div className="text-5xl mb-4">🛰️</div>
+            <p className="text-lg font-medium animate-pulse" style={{ color: "var(--text-secondary)" }}>Acquiring GPS...</p>
+            <p className="text-sm mt-2" style={{ color: "var(--text-secondary)" }}>Waiting for first sensor data from bins</p>
+          </div>
+        </div>
+      ) : (
+      <MapContainer center={dynamicCenter} zoom={zoom} style={{ height: "100%", width: "100%" }}>
         <TileLayer
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
@@ -137,31 +150,32 @@ export default function MapView({
           </Marker>
         ))}
 
-        {bins.map((bin) => (
+        {bins.filter(b => b.latitude != null && b.longitude != null).map((bin) => (
           <Marker
             key={`bin-${bin.id}`}
-            position={[bin.latitude, bin.longitude]}
+            position={[bin.latitude!, bin.longitude!]}
             icon={binIcon}
           >
             <Popup>
               <div className="text-sm space-y-1 min-w-[140px]">
-                <p className="font-bold text-gray-900">{bin.name}</p>
-                <p className="text-xs text-gray-500">ID: {bin.bin_id}</p>
+                <p className="font-bold" style={{ color: "var(--foreground)" }}>{bin.name}</p>
+                <p className="text-xs" style={{ color: "var(--text-secondary)" }}>ID: {bin.bin_id}</p>
                 <div className="flex items-center gap-2">
-                  <div className="w-full bg-gray-200 rounded-full h-2">
+                  <div className="w-full rounded-full h-2" style={{ background: "var(--card-border)" }}>
                     <div className={`h-2 rounded-full ${
                       bin.fill_level > 80 ? 'bg-red-500' :
                       bin.fill_level > 40 ? 'bg-yellow-500' : 'bg-green-500'
                     }`} style={{ width: `${bin.fill_level}%` }} />
                   </div>
-                  <span className="text-xs font-medium">{bin.fill_level}%</span>
+                  <span className="text-xs font-medium" style={{ color: "var(--foreground)" }}>{bin.fill_level}%</span>
                 </div>
-                <p className="text-xs text-gray-400">Status: {getStatusLabel(bin.status)}</p>
+                <p className="text-xs" style={{ color: "var(--text-secondary)" }}>Status: {getStatusLabel(bin.status)}</p>
               </div>
             </Popup>
           </Marker>
         ))}
       </MapContainer>
+      )}
     </div>
   );
 }

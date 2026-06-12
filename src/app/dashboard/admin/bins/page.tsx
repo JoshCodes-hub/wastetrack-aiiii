@@ -1,17 +1,24 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { SmartBin } from "@/types";
 import Navbar from "@/components/Navbar";
 import SmartBinCard from "@/components/SmartBinCard";
 import MapViewWrapper from "@/components/MapViewWrapper";
+import { showToast } from "@/components/NotificationToast";
+import { findNearestCleaner } from "@/lib/utils";
 
 export default function AdminBinsPage() {
   const router = useRouter();
   const [bins, setBins] = useState<SmartBin[]>([]);
   const [userName, setUserName] = useState("");
+  const [hasDataMap, setHasDataMap] = useState<Record<string, boolean>>({});
+  const binsRef = useRef(bins);
+  binsRef.current = bins;
+
+  const cleanersRef = useRef<{ id: string; latitude?: number; longitude?: number }[]>([]);
 
   useEffect(() => {
     const init = async () => {
@@ -25,51 +32,126 @@ export default function AdminBinsPage() {
         .single();
       if (profile) setUserName(profile.name);
 
-      const { data: allBins } = await supabase
-        .from("smart_bins")
-        .select("*");
+      const { data: allBins } = await supabase.from("smart_bins").select("*");
+      if (allBins) {
+        setBins(allBins);
+        setHasDataMap(Object.fromEntries(allBins.map(b => [b.bin_id, true])));
+      }
 
-      if (allBins) setBins(allBins);
+      const { data: cleaners } = await supabase.from("cleaners").select("id, latitude, longitude");
+      if (cleaners) cleanersRef.current = cleaners;
     };
-
     init();
+  }, [router]);
 
+  const handleBinUpsert = useCallback((payload: { eventType: string; new: SmartBin; old?: SmartBin }) => {
+    const newBin = payload.new as SmartBin;
+    const binId = newBin.bin_id;
+
+    setBins(prev => {
+      const idx = prev.findIndex(b => b.bin_id === binId);
+      if (idx >= 0) {
+        const updated = [...prev];
+        updated[idx] = newBin;
+        return updated;
+      }
+      return [newBin, ...prev];
+    });
+
+    setHasDataMap(prev => ({ ...prev, [binId]: true }));
+
+    if (newBin.status === "full") {
+      showToast({
+        title: "Bin Full!",
+        message: `${newBin.name} (${binId}) is full — creating cleanup report`,
+        type: "warning",
+      });
+      handleFullBin(newBin);
+    }
+  }, []);
+
+  const handleFullBin = useCallback(async (bin: SmartBin) => {
+    const reportId = crypto.randomUUID();
+    const now = new Date().toISOString();
+
+    const { error: reportError } = await supabase.from("reports").insert({
+      id: reportId,
+      user_id: (await supabase.auth.getUser()).data.user?.id,
+      image_url: "/placeholder-bin.svg",
+      description: `Auto-generated: Smart bin ${bin.name} (${bin.bin_id}) is full at ${bin.latitude?.toFixed(4)},${bin.longitude?.toFixed(4)}`,
+      latitude: bin.latitude || 0,
+      longitude: bin.longitude || 0,
+      waste_type: "mixed_waste",
+      severity: "high",
+      priority: "high",
+      status: "pending",
+      created_at: now,
+      updated_at: now,
+    });
+
+    if (reportError) {
+      showToast({ title: "Failed to create report", message: reportError.message, type: "error" });
+      return;
+    }
+
+    const cleaners = cleanersRef.current;
+    const nearestId = findNearestCleaner(bin.latitude || 0, bin.longitude || 0, cleaners);
+    if (nearestId) {
+      const { error: assignError } = await supabase.from("assignments").insert({
+        report_id: reportId,
+        cleaner_id: nearestId,
+        status: "assigned",
+        assigned_at: now,
+        distance_km: 0,
+      });
+      if (assignError) {
+        showToast({ title: "Failed to assign cleaner", message: assignError.message, type: "error" });
+      } else {
+        showToast({ title: "Cleaner Assigned", message: "Nearest cleaner notified", type: "success" });
+      }
+    } else {
+      showToast({ title: "No Cleaners Available", message: "No active cleaners to assign", type: "info" });
+    }
+  }, []);
+
+  useEffect(() => {
     const binsSub = supabase
-      .channel("admin-bins")
-      .on("postgres_changes", { event: "*", schema: "public", table: "smart_bins" }, (payload) => {
-        if (payload.eventType === "INSERT") setBins(prev => [...prev, payload.new as SmartBin]);
-        else if (payload.eventType === "DELETE") setBins(prev => prev.filter(b => b.id !== payload.old.id));
-        else setBins(prev => prev.map(b => b.id === payload.new.id ? payload.new as SmartBin : b));
+      .channel("admin-bins-upsert")
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "smart_bins" }, (payload) => {
+        handleBinUpsert({ eventType: "INSERT", new: payload.new as SmartBin });
+      })
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "smart_bins" }, (payload) => {
+        handleBinUpsert({ eventType: "UPDATE", new: payload.new as SmartBin, old: payload.old as SmartBin });
       })
       .subscribe();
 
     return () => { supabase.removeChannel(binsSub); };
-  }, [router]);
+  }, [handleBinUpsert]);
 
   const fullBins = bins.filter(b => b.status === "full");
   const halfBins = bins.filter(b => b.status === "half_full");
   const emptyBins = bins.filter(b => b.status === "empty");
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-green-50 via-white to-blue-50">
+    <div className="min-h-screen transition-colors" style={{ background: "var(--background)" }}>
       <Navbar role="admin" userName={userName} />
       <main className="max-w-7xl mx-auto px-4 sm:px-6 py-8 space-y-8">
         <div>
-          <h1 className="text-2xl font-bold text-green-900">Smart Bin Management</h1>
-          <p className="text-gray-500">{bins.length} bins monitored</p>
+          <h1 className="text-2xl font-bold" style={{ color: "var(--foreground)" }}>Smart Bin Management</h1>
+          <p style={{ color: "var(--text-secondary)" }}>{bins.length} bins monitored · IoT data refreshes every 15s</p>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <div className="glass-card rounded-2xl p-6 border-l-4 border-red-500">
-            <p className="text-sm text-gray-500">Full</p>
+          <div className="rounded-2xl p-6 border-l-4 border-red-500" style={{ background: "var(--card-bg)" }}>
+            <p className="text-sm" style={{ color: "var(--text-secondary)" }}>Full</p>
             <p className="text-3xl font-bold text-red-600">{fullBins.length}</p>
           </div>
-          <div className="glass-card rounded-2xl p-6 border-l-4 border-yellow-500">
-            <p className="text-sm text-gray-500">Half Full</p>
+          <div className="rounded-2xl p-6 border-l-4 border-yellow-500" style={{ background: "var(--card-bg)" }}>
+            <p className="text-sm" style={{ color: "var(--text-secondary)" }}>Half Full</p>
             <p className="text-3xl font-bold text-yellow-600">{halfBins.length}</p>
           </div>
-          <div className="glass-card rounded-2xl p-6 border-l-4 border-green-500">
-            <p className="text-sm text-gray-500">Empty</p>
+          <div className="rounded-2xl p-6 border-l-4 border-green-500" style={{ background: "var(--card-bg)" }}>
+            <p className="text-sm" style={{ color: "var(--text-secondary)" }}>Empty</p>
             <p className="text-3xl font-bold text-green-600">{emptyBins.length}</p>
           </div>
         </div>
@@ -77,8 +159,16 @@ export default function AdminBinsPage() {
         <MapViewWrapper bins={bins} height="400px" />
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {bins.map((bin) => (
-            <SmartBinCard key={bin.id} bin={bin} />
+          {bins.length === 0 ? (
+            <div className="col-span-full text-center py-20 rounded-2xl" style={{ background: "var(--card-bg)" }}>
+              <div className="text-6xl mb-4">🗑️</div>
+              <p className="text-xl font-medium" style={{ color: "var(--foreground)" }}>Waiting for IoT data...</p>
+              <p className="text-sm mt-2" style={{ color: "var(--text-secondary)" }}>
+                Smart bins will appear here once they send their first reading
+              </p>
+            </div>
+          ) : bins.map((bin) => (
+            <SmartBinCard key={bin.bin_id} bin={bin} hasData={hasDataMap[bin.bin_id] || false} />
           ))}
         </div>
       </main>
