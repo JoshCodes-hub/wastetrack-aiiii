@@ -3,6 +3,7 @@
 import { SmartBin } from "@/types";
 import { getStatusLabel } from "@/lib/utils";
 import { useEffect, useState } from "react";
+import { useReverseGeocode } from "@/hooks/useReverseGeocode";
 
 interface SmartBinCardProps {
   bin: SmartBin;
@@ -21,6 +22,7 @@ export default function SmartBinCard({ bin, hasData, onClick }: SmartBinCardProp
   const isOnline = secondsAgo <= 120;
   const fillValue = bin.fill_level || 0;
   const barColor = fillValue > 80 ? "bg-red-500" : fillValue > 40 ? "bg-yellow-500" : "bg-green-500";
+  const locationName = useReverseGeocode(bin.latitude, bin.longitude);
 
   useEffect(() => {
     setSecondsAgo(getSecondsAgo(bin.last_updated));
@@ -52,12 +54,17 @@ export default function SmartBinCard({ bin, hasData, onClick }: SmartBinCardProp
         </div>
       </div>
       <div className="space-y-2">
-        <div className="flex items-center gap-2 text-sm" style={{ color: "var(--text-secondary)" }}>
-          <span>📍 GPS:</span>
+        <div className="flex items-start gap-2 text-sm" style={{ color: "var(--text-secondary)" }}>
+          <span className="mt-0.5">📍</span>
           {hasGps ? (
-            <span className="font-mono">{bin.latitude!.toFixed(4)}, {bin.longitude!.toFixed(4)}</span>
+            <div className="min-w-0">
+              <p className="font-medium truncate" style={{ color: "var(--foreground)" }}>
+                {locationName || `${bin.latitude!.toFixed(4)}, ${bin.longitude!.toFixed(4)}`}
+              </p>
+              <p className="text-xs font-mono opacity-60">{bin.latitude!.toFixed(4)}, {bin.longitude!.toFixed(4)}</p>
+            </div>
           ) : (
-            <span className="italic text-yellow-600 dark:text-yellow-400 animate-pulse">Acquiring GPS...</span>
+            <span className="italic text-yellow-600 dark:text-yellow-400 animate-pulse">Acquiring location...</span>
           )}
         </div>
         <div>

@@ -5,6 +5,29 @@ import L from "leaflet";
 import { useEffect } from "react";
 import { Report, Cleaner, SmartBin, Assignment } from "@/types";
 import { getStatusLabel, formatDate, calculateDistance } from "@/lib/utils";
+import { useReverseGeocode } from "@/hooks/useReverseGeocode";
+
+function BinPopupContent({ bin, liveBinId }: { bin: SmartBin; liveBinId?: string }) {
+  const locationName = useReverseGeocode(bin.latitude, bin.longitude);
+  return (
+    <div className="text-sm space-y-1 min-w-[140px]">
+      <p className="font-bold" style={{ color: "var(--foreground)" }}>{liveBinId && bin.bin_id === liveBinId ? "📡 " : "🗑️ "}{bin.name}</p>
+      <p className="text-xs" style={{ color: "var(--text-secondary)" }}>ID: {bin.bin_id}</p>
+      {locationName && <p className="text-xs font-medium" style={{ color: "var(--foreground)" }}>📍 {locationName}</p>}
+      <p className="text-xs font-mono" style={{ color: "var(--text-secondary)" }}>{bin.latitude?.toFixed(4)}, {bin.longitude?.toFixed(4)}</p>
+      <div className="flex items-center gap-2">
+        <div className="w-full rounded-full h-2" style={{ background: "var(--card-border)" }}>
+          <div className={`h-2 rounded-full ${
+            bin.fill_level > 80 || bin.status === "FULL" || bin.status === "full" || bin.status === "HIGH" ? 'bg-red-500' :
+            bin.fill_level > 40 ? 'bg-yellow-500' : 'bg-green-500'
+          }`} style={{ width: `${Math.max(bin.fill_level, 3)}%` }} />
+        </div>
+        <span className="text-xs font-medium" style={{ color: "var(--foreground)" }}>{bin.fill_level}%</span>
+      </div>
+      <p className="text-xs" style={{ color: "var(--text-secondary)" }}>Status: {getStatusLabel(bin.status)}</p>
+    </div>
+  );
+}
 
 const reportIcon = L.divIcon({
   className: "",
@@ -177,20 +200,7 @@ export default function MapView({
             icon={liveBinId && bin.bin_id === liveBinId ? liveBinIcon : binIcon}
           >
             <Popup>
-              <div className="text-sm space-y-1 min-w-[140px]">
-                <p className="font-bold" style={{ color: "var(--foreground)" }}>{bin.name}</p>
-                <p className="text-xs" style={{ color: "var(--text-secondary)" }}>ID: {bin.bin_id}</p>
-                <div className="flex items-center gap-2">
-                  <div className="w-full rounded-full h-2" style={{ background: "var(--card-border)" }}>
-                    <div className={`h-2 rounded-full ${
-                      bin.fill_level > 80 || bin.status === "FULL" || bin.status === "full" || bin.status === "HIGH" ? 'bg-red-500' :
-                      bin.fill_level > 40 ? 'bg-yellow-500' : 'bg-green-500'
-                    }`} style={{ width: `${Math.max(bin.fill_level, 3)}%` }} />
-                  </div>
-                  <span className="text-xs font-medium" style={{ color: "var(--foreground)" }}>{bin.fill_level}%</span>
-                </div>
-                <p className="text-xs" style={{ color: "var(--text-secondary)" }}>Status: {getStatusLabel(bin.status)}</p>
-              </div>
+              <BinPopupContent bin={bin} liveBinId={liveBinId} />
             </Popup>
           </Marker>
         ))}
