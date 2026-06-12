@@ -7,8 +7,8 @@ import type { Report, Cleaner, SmartBin, Assignment } from "@/types";
 const MapView = dynamic(() => import("@/components/MapView"), {
   ssr: false,
   loading: () => (
-    <div className="w-full h-[500px] rounded-2xl bg-gray-100 flex items-center justify-center">
-      <div className="text-gray-400">Loading map...</div>
+    <div className="w-full h-[500px] rounded-2xl flex items-center justify-center" style={{ background: "var(--card-bg)" }}>
+      <div style={{ color: "var(--text-secondary)" }}>Loading map...</div>
     </div>
   ),
 });
@@ -21,6 +21,7 @@ interface MapViewWrapperProps {
   center?: [number, number];
   zoom?: number;
   height?: string;
+  liveBinId?: string;
 }
 
 export default function MapViewWrapper(props: MapViewWrapperProps) {

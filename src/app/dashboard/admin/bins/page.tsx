@@ -131,6 +131,8 @@ export default function AdminBinsPage() {
   const fullBins = bins.filter(b => b.status === "full" || b.status === "FULL" || b.status === "HIGH");
   const halfBins = bins.filter(b => b.status === "half_full" || b.status === "MEDIUM");
   const emptyBins = bins.filter(b => b.status === "empty" || b.status === "LOW");
+  const liveBin = bins.find(b => b.bin_id === "BIN_001" && b.latitude != null && b.longitude != null);
+  const mapCenter: [number, number] | undefined = liveBin ? [liveBin.latitude!, liveBin.longitude!] : undefined;
 
   return (
     <div className="min-h-screen transition-colors" style={{ background: "var(--background)" }}>
@@ -158,7 +160,7 @@ export default function AdminBinsPage() {
           </div>
         </div>
 
-        <MapViewWrapper bins={bins} height="400px" />
+        <MapViewWrapper bins={bins} height="400px" liveBinId="BIN_001" center={mapCenter} zoom={16} />
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {bins.length === 0 ? (

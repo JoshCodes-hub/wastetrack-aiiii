@@ -1,7 +1,8 @@
 "use client";
 
-import { MapContainer, TileLayer, Marker, Popup, Polyline } from "react-leaflet";
+import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap } from "react-leaflet";
 import L from "leaflet";
+import { useEffect } from "react";
 import { Report, Cleaner, SmartBin, Assignment } from "@/types";
 import { getStatusLabel, formatDate, calculateDistance } from "@/lib/utils";
 
@@ -29,6 +30,14 @@ const binIcon = L.divIcon({
   popupAnchor: [0, -16],
 });
 
+const liveBinIcon = L.divIcon({
+  className: "",
+  html: `<div style="width:40px;height:40px;background:linear-gradient(135deg,#f59e0b,#d97706);border-radius:50%;display:flex;align-items:center;justify-content:center;color:white;font-size:18px;box-shadow:0 0 20px rgba(245,158,11,0.8),0 0 40px rgba(245,158,11,0.4);border:3px solid white;animation:pulse 2s infinite;">📡</div>`,
+  iconSize: [40, 40],
+  iconAnchor: [20, 20],
+  popupAnchor: [0, -20],
+});
+
 const routeColor = "#3b82f6";
 
 interface MapViewProps {
@@ -39,6 +48,15 @@ interface MapViewProps {
   center?: [number, number];
   zoom?: number;
   height?: string;
+  liveBinId?: string;
+}
+
+function MapCenterUpdater({ center }: { center: [number, number] }) {
+  const map = useMap();
+  useEffect(() => {
+    map.flyTo(center, map.getZoom(), { duration: 1 });
+  }, [center, map]);
+  return null;
 }
 
 export default function MapView({
@@ -46,9 +64,10 @@ export default function MapView({
   cleaners = [],
   bins = [],
   assignments = [],
-  center = [6.5244, 3.3792],
-  zoom = 13,
+  center,
+  zoom = 15,
   height = "500px",
+  liveBinId,
 }: MapViewProps) {
   const reportMap = new Map(reports.map(r => [r.id, r]));
   const cleanerMap = new Map(cleaners.map(c => [c.id, c]));
@@ -75,7 +94,7 @@ export default function MapView({
   }
 
   return (
-    <div style={{ height, width: "100%" }} className="rounded-2xl overflow-hidden shadow-lg border border-green-100">
+    <div style={{ height, width: "100%", border: "1px solid var(--card-border)" }} className="rounded-2xl overflow-hidden shadow-lg">
       {!anyGps && bins.length > 0 ? (
         <div className="w-full h-full rounded-2xl flex items-center justify-center" style={{ background: "var(--card-bg)" }}>
           <div className="text-center">
@@ -90,6 +109,7 @@ export default function MapView({
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
+        <MapCenterUpdater center={dynamicCenter} />
 
         {routes.map((r, i) => (
           <Polyline
@@ -113,16 +133,16 @@ export default function MapView({
           >
             <Popup>
               <div className="text-sm space-y-1 min-w-[160px]">
-                <p className="font-bold text-gray-900">{getStatusLabel(report.waste_type)}</p>
-                <p className="text-gray-600 text-xs">{report.description?.slice(0, 120)}</p>
+                <p className="font-bold" style={{ color: "var(--foreground)" }}>{getStatusLabel(report.waste_type)}</p>
+                <p style={{ color: "var(--text-secondary)" }} className="text-xs">{report.description?.slice(0, 120)}</p>
                 <div className="flex items-center gap-2 pt-1">
                   <span className={`px-2 py-0.5 rounded-full text-xs font-medium text-white ${
                     report.status === "completed" ? "bg-green-500" :
                     report.status === "in_progress" ? "bg-blue-500" : "bg-yellow-500"
                   }`}>{getStatusLabel(report.status)}</span>
-                  <span className="text-xs text-gray-400">{formatDate(report.created_at)}</span>
+                  <span className="text-xs" style={{ color: "var(--text-secondary)" }}>{formatDate(report.created_at)}</span>
                 </div>
-                <p className="text-xs text-gray-400">📍 {report.latitude.toFixed(4)}, {report.longitude.toFixed(4)}</p>
+                <p className="text-xs" style={{ color: "var(--text-secondary)" }}>📍 {report.latitude.toFixed(4)}, {report.longitude.toFixed(4)}</p>
               </div>
             </Popup>
           </Marker>
@@ -136,12 +156,12 @@ export default function MapView({
           >
             <Popup>
               <div className="text-sm space-y-1">
-                <p className="font-bold text-gray-900">{cleaner.name}</p>
+                <p className="font-bold" style={{ color: "var(--foreground)" }}>{cleaner.name}</p>
                 <p className={cleaner.is_active ? "text-green-600 text-xs" : "text-gray-400 text-xs"}>
                   {cleaner.is_active ? "🟢 Active" : "🔴 Offline"}
                 </p>
                 {cleaner.latitude && cleaner.longitude && (
-                  <p className="text-xs text-gray-400">
+                  <p className="text-xs" style={{ color: "var(--text-secondary)" }}>
                     📍 {cleaner.latitude.toFixed(4)}, {cleaner.longitude.toFixed(4)}
                   </p>
                 )}
@@ -154,7 +174,7 @@ export default function MapView({
           <Marker
             key={`bin-${bin.id}`}
             position={[bin.latitude!, bin.longitude!]}
-            icon={binIcon}
+            icon={liveBinId && bin.bin_id === liveBinId ? liveBinIcon : binIcon}
           >
             <Popup>
               <div className="text-sm space-y-1 min-w-[140px]">
@@ -163,9 +183,9 @@ export default function MapView({
                 <div className="flex items-center gap-2">
                   <div className="w-full rounded-full h-2" style={{ background: "var(--card-border)" }}>
                     <div className={`h-2 rounded-full ${
-                      bin.fill_level > 80 || bin.status === "FULL" || bin.status === "full" ? 'bg-red-500' :
+                      bin.fill_level > 80 || bin.status === "FULL" || bin.status === "full" || bin.status === "HIGH" ? 'bg-red-500' :
                       bin.fill_level > 40 ? 'bg-yellow-500' : 'bg-green-500'
-                    }`} style={{ width: `${bin.fill_level}%` }} />
+                    }`} style={{ width: `${Math.max(bin.fill_level, 3)}%` }} />
                   </div>
                   <span className="text-xs font-medium" style={{ color: "var(--foreground)" }}>{bin.fill_level}%</span>
                 </div>
