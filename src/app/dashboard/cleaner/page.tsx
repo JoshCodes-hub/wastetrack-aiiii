@@ -7,8 +7,11 @@ import { Report, Assignment, Cleaner } from "@/types";
 import Navbar from "@/components/Navbar";
 import DashboardCard from "@/components/DashboardCard";
 import ReportCard from "@/components/ReportCard";
+import { showToast } from "@/components/NotificationToast";
 import MapViewWrapper from "@/components/MapViewWrapper";
 import { calculateDistance, formatDate } from "@/lib/utils";
+import { useCleanerLocation } from "@/hooks/useCleanerLocation";
+import { useCleanerRouting } from "@/hooks/useCleanerRouting";
 
 export default function CleanerDashboard() {
   const router = useRouter();
@@ -17,6 +20,12 @@ export default function CleanerDashboard() {
   const [cleanerProfile, setCleanerProfile] = useState<Cleaner | null>(null);
   const [userName, setUserName] = useState("");
   const [cleanerId, setCleanerId] = useState<string | null>(null);
+  const [gpsEnabled, setGpsEnabled] = useState(false);
+
+  const { position, tracking, error: gpsError } = useCleanerLocation({
+    cleanerId: cleanerId || "",
+    enabled: gpsEnabled && !!cleanerId,
+  });
 
   const loadAssignments = useCallback(async (cId: string) => {
     const { data: myAssignments } = await supabase
@@ -79,6 +88,7 @@ export default function CleanerDashboard() {
         async (payload) => {
           const newAssignment = payload.new as Assignment;
           setAssignments(prev => [newAssignment, ...prev]);
+          showToast({ title: "New Assignment!", message: "You have a new waste collection task", type: "success" });
 
           const { data: reportData } = await supabase
             .from("reports")
@@ -133,6 +143,11 @@ export default function CleanerDashboard() {
   const inProgress = assignments.filter(a => a.status === "in_progress");
   const completed = assignments.filter(a => a.status === "completed");
 
+  const activeReports = reports.filter(r => r.status !== "completed" && r.latitude && r.longitude);
+  const cleanerLat = position?.latitude || cleanerProfile?.latitude || 0;
+  const cleanerLng = position?.longitude || cleanerProfile?.longitude || 0;
+  const optimizedRoute = useCleanerRouting(activeReports, cleanerLat, cleanerLng);
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-green-50 via-white to-blue-50">
       <Navbar role="cleaner" userName={userName} />
@@ -149,18 +164,70 @@ export default function CleanerDashboard() {
           <DashboardCard title="Completed" value={completed.length} icon="✅" color="green" />
         </div>
 
+        <div className="glass-card rounded-2xl p-5 flex items-center justify-between flex-wrap gap-4">
+          <div className="flex items-center gap-3">
+            <div className={`w-3 h-3 rounded-full ${tracking ? 'bg-green-500 animate-pulse-soft' : 'bg-gray-400'}`}></div>
+            <div>
+              <p className="font-medium text-gray-900">Live GPS Tracking</p>
+              <p className="text-xs text-gray-500">
+                {tracking
+                  ? position
+                    ? `${position.latitude.toFixed(6)}, ${position.longitude.toFixed(6)} (±${Math.round(position.accuracy)}m)`
+                    : 'Acquiring signal...'
+                  : gpsEnabled && gpsError
+                    ? gpsError
+                    : 'Tap Enable to start broadcasting your location'}
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => setGpsEnabled(v => !v)}
+            className={`px-5 py-2 rounded-xl text-sm font-medium transition-all ${
+              gpsEnabled
+                ? 'bg-green-500 text-white shadow-md hover:bg-green-600'
+                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+            }`}
+          >
+            {gpsEnabled ? '🟢 Live' : 'Enable GPS'}
+          </button>
+        </div>
+
+        {optimizedRoute.length > 1 && (
+          <div className="glass-card rounded-2xl p-5">
+            <h3 className="font-semibold text-gray-900 mb-3">📍 Optimized Route</h3>
+            <div className="space-y-2">
+              {optimizedRoute.map((r, i) => {
+                const dist = i === 0
+                  ? calculateDistance(cleanerLat, cleanerLng, r.latitude, r.longitude)
+                  : calculateDistance(optimizedRoute[i - 1].latitude, optimizedRoute[i - 1].longitude, r.latitude, r.longitude);
+                return (
+                  <div key={r.id} className="flex items-center gap-3 text-sm">
+                    <span className="w-6 h-6 rounded-full bg-green-100 text-green-700 flex items-center justify-center font-bold text-xs">{i + 1}</span>
+                    <span className="text-gray-700">{r.waste_type?.replace(/_/g, " ")}</span>
+                    <span className="text-gray-400 ml-auto">{dist.toFixed(1)} km</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         <div>
           <h2 className="text-lg font-semibold text-gray-900 mb-4">
             Reports Map
-            {cleanerProfile?.latitude && cleanerProfile?.longitude && (
+            {position && (
               <span className="text-sm font-normal text-gray-500 ml-2">
-                (your location: {cleanerProfile.latitude.toFixed(4)}, {cleanerProfile.longitude.toFixed(4)})
+                (you: {position.latitude.toFixed(4)}, {position.longitude.toFixed(4)})
               </span>
             )}
           </h2>
           <MapViewWrapper
             reports={reports}
-            cleaners={cleanerProfile ? [cleanerProfile] : []}
+            cleaners={cleanerProfile ? [{
+              ...cleanerProfile,
+              latitude: position?.latitude ?? cleanerProfile.latitude,
+              longitude: position?.longitude ?? cleanerProfile.longitude,
+            }] : []}
             assignments={assignments}
             height="400px"
           />

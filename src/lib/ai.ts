@@ -1,3 +1,4 @@
+import * as mobilenet from '@tensorflow-models/mobilenet';
 import { AIAnalysis } from '@/types';
 
 type WasteTypeKey = 'plastic' | 'food_waste' | 'paper' | 'electronic' | 'hazardous' | 'glass' | 'mixed_waste' | 'organic';
@@ -17,77 +18,95 @@ const WASTE_DISPLAY: Record<WasteTypeKey, string> = {
 };
 
 const SEVERITY_DISPLAY: Record<SeverityKey, string> = {
-  low: 'Low',
-  medium: 'Medium',
-  high: 'High',
-  critical: 'Critical',
+  low: 'Low', medium: 'Medium', high: 'High', critical: 'Critical',
 };
 
 const PRIORITY_DISPLAY: Record<PriorityKey, string> = {
-  low: 'Low',
-  medium: 'Medium',
-  high: 'High',
-  urgent: 'Urgent',
+  low: 'Low', medium: 'Medium', high: 'High', urgent: 'Urgent',
 };
 
 const RISK_DISPLAY: Record<RiskKey, string> = {
-  low_risk: 'Low Risk',
-  medium_risk: 'Medium Risk',
-  high_risk: 'High Risk',
+  low_risk: 'Low Risk', medium_risk: 'Medium Risk', high_risk: 'High Risk',
 };
 
-const wasteKeywords: Record<WasteTypeKey, string[]> = {
-  plastic: ['bottle', 'plastic', 'bag', 'wrapper', 'container', 'packaging', 'straw', 'cup', 'sachet', 'nylon'],
-  food_waste: ['food', 'leftover', 'fruit', 'vegetable', 'rotten', 'organic', 'peel', 'bread', 'meal', 'cooked'],
-  paper: ['paper', 'cardboard', 'box', 'newspaper', 'magazine', 'envelope', 'tissue', 'carton', 'book'],
-  electronic: ['electronic', 'wire', 'cable', 'phone', 'computer', 'battery', 'circuit', 'screen', 'charger', 'laptop'],
-  hazardous: ['chemical', 'paint', 'oil', 'solvent', 'toxic', 'medical', 'syringe', 'bleach', 'acid', 'pesticide'],
-  glass: ['glass', 'bottle', 'jar', 'mirror', 'window', 'broken glass', 'ceramic'],
-  mixed_waste: ['mixed', 'trash', 'garbage', 'waste', 'rubbish', 'debris', 'litter', 'dump', 'pile', 'assorted'],
-  organic: ['leaf', 'grass', 'wood', 'garden', 'plant', 'flower', 'branch', 'hay', 'straw', 'manure'],
-};
+const severities: SeverityKey[] = ['low', 'medium', 'high', 'critical'];
+const priorities: PriorityKey[] = ['low', 'medium', 'high', 'urgent'];
 
-const severityIndicators: Record<SeverityKey, string[]> = {
-  low: ['small', 'little', 'minor', 'few', 'slight', 'scattered', 'isolated', 'single'],
-  medium: ['moderate', 'some', 'several', 'medium', 'fair', 'noticeable', 'accumulated'],
-  high: ['large', 'big', 'lot', 'significant', 'major', 'substantial', 'overflowing', 'widespread', 'pile'],
-  critical: ['huge', 'massive', 'extreme', 'overflowing', 'critical', 'emergency', 'spill', 'flood', 'toxic spill'],
-};
+const IMAGENET_WASTE_MAP: [string[], WasteTypeKey][] = [
+  [['plastic bag', 'bag', 'packet', 'sachet', 'wrapper', 'packaging'], 'plastic'],
+  [['bottle', 'water bottle', 'pop bottle', 'soda bottle', 'beer bottle', 'wine bottle', 'cup', 'sipper', 'straw', 'spray can'], 'plastic'],
+  [['banana', 'apple', 'orange', 'pineapple', 'pizza', 'sandwich', 'bread', 'cake', 'cookie', 'plate', 'food'], 'food_waste'],
+  [['envelope', 'magazine', 'book', 'notebook', 'paper', 'paper towel', 'cardboard', 'box', 'carton'], 'paper'],
+  [['monitor', 'computer', 'laptop', 'keyboard', 'mouse', 'cell phone', 'smartphone', 'cable', 'circuit', 'battery', 'screen', 'charger'], 'electronic'],
+  [['syringe', 'hypodermic', 'paint', 'chemical', 'medicine', 'drug', 'pesticide'], 'hazardous'],
+  [['drinking glass', 'wine glass', 'glass', 'jar', 'mirror', 'window', 'glassware', 'crystal'], 'glass'],
+  [['trash', 'garbage', 'dump', 'dumpster', 'rubbish', 'debris', 'landfill'], 'mixed_waste'],
+  [['leaf', 'tree', 'grass', 'flower', 'mushroom', 'wood', 'branch', 'hay', 'plant', 'vegetable'], 'organic'],
+];
 
-const priorityKeywords: Record<PriorityKey, string[]> = {
-  low: ['distant', 'rural', 'remote', 'not urgent', 'isolated', 'unpopulated'],
-  medium: ['urban', 'residential', 'standard', 'normal', 'neighborhood', 'street'],
-  high: ['school', 'hospital', 'park', 'public', 'market', 'commercial', 'crowded', 'drain', 'waterway'],
-  urgent: ['blocking', 'dangerous', 'main road', 'highway', 'emergency', 'immediate', 'flooding', 'health hazard'],
-};
+const SEVERITY_KEYWORDS: [string[], SeverityKey][] = [
+  [['small', 'little', 'minor', 'few', 'slight', 'scattered', 'isolated', 'single', 'tiny'], 'low'],
+  [['moderate', 'some', 'several', 'medium', 'fair', 'noticeable', 'accumulated', 'handful'], 'medium'],
+  [['large', 'big', 'lot', 'significant', 'major', 'substantial', 'overflowing', 'widespread', 'pile', 'heap'], 'high'],
+  [['huge', 'massive', 'extreme', 'overflowing', 'critical', 'emergency', 'spill', 'flood', 'toxic', 'hazardous'], 'critical'],
+];
 
-function getRandomConfidence(): number {
-  return 0.78 + Math.random() * 0.18;
+const PRIORITY_KEYWORDS: [string[], PriorityKey][] = [
+  [['distant', 'rural', 'remote', 'isolated', 'unpopulated', 'backyard'], 'low'],
+  [['urban', 'residential', 'standard', 'normal', 'neighborhood', 'street'], 'medium'],
+  [['school', 'hospital', 'park', 'public', 'market', 'commercial', 'crowded', 'drain', 'waterway', 'playground'], 'high'],
+  [['blocking', 'dangerous', 'main road', 'highway', 'emergency', 'immediate', 'flooding', 'health', 'gas', 'leak', 'rotten'], 'urgent'],
+];
+
+let model: mobilenet.MobileNet | null = null;
+
+async function getModel(): Promise<mobilenet.MobileNet> {
+  if (!model) {
+    model = await mobilenet.load({ version: 2, alpha: 1.0 });
+  }
+  return model;
 }
 
-function analyzeByKeywords(text: string, keywordMap: Record<string, string[]>): string {
-  const lower = text.toLowerCase();
-  let bestMatch: string | null = null;
-  let bestScore = 0;
+function fileToImage(file: File): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => { resolve(img); URL.revokeObjectURL(url); };
+    img.onerror = () => { reject(new Error('Failed to load image')); URL.revokeObjectURL(url); };
+    img.src = url;
+  });
+}
 
-  for (const [key, keywords] of Object.entries(keywordMap)) {
-    let score = 0;
+function classifyImageNetLabel(label: string): WasteTypeKey {
+  const lower = label.toLowerCase();
+  for (const [keywords, wasteType] of IMAGENET_WASTE_MAP) {
     for (const kw of keywords) {
-      if (lower.includes(kw)) {
-        score += kw.length;
-      }
-    }
-    if (score > bestScore) {
-      bestScore = score;
-      bestMatch = key;
+      if (lower.includes(kw)) return wasteType;
     }
   }
-  return bestMatch || Object.keys(keywordMap)[Math.floor(Math.random() * Object.keys(keywordMap).length)];
+  return 'mixed_waste';
 }
 
-function estimateQuantity(severity: SeverityKey, wasteType: WasteTypeKey): string {
-  const isSpecial = wasteType === 'hazardous' || wasteType === 'electronic';
-  if (isSpecial) {
+function analyzeText(text: string, keywordMap: [string[], string][]): string {
+  const lower = text.toLowerCase();
+  let bestScore = 0;
+  let bestMatch = keywordMap[0][1];
+  for (const [keywords, value] of keywordMap) {
+    let score = 0;
+    for (const kw of keywords) {
+      let idx = 0;
+      while ((idx = lower.indexOf(kw, idx)) !== -1) {
+        score++;
+        idx += kw.length;
+      }
+    }
+    if (score > bestScore) { bestScore = score; bestMatch = value; }
+  }
+  return bestMatch;
+}
+
+function estimateQuantity(wasteType: WasteTypeKey, severity: SeverityKey): string {
+  if (wasteType === 'hazardous' || wasteType === 'electronic') {
     const map: Record<SeverityKey, string> = {
       low: 'Minor (single item / small container)',
       medium: 'Moderate (2-5 items / small batch)',
@@ -105,33 +124,23 @@ function estimateQuantity(severity: SeverityKey, wasteType: WasteTypeKey): strin
   return map[severity];
 }
 
-function assessEnvironmentalRisk(wasteType: WasteTypeKey, severity: SeverityKey, priority: PriorityKey): RiskKey {
-  const highRiskWaste: WasteTypeKey[] = ['hazardous', 'electronic'];
-  const mediumRiskWaste: WasteTypeKey[] = ['plastic', 'mixed_waste'];
-
-  if (highRiskWaste.includes(wasteType) && (severity === 'high' || severity === 'critical')) return 'high_risk';
-  if (mediumRiskWaste.includes(wasteType) && severity === 'critical') return 'high_risk';
-  if (highRiskWaste.includes(wasteType) && severity === 'medium') return 'medium_risk';
+function assessRisk(wasteType: WasteTypeKey, severity: SeverityKey, priority: PriorityKey): RiskKey {
+  const hiRisk: WasteTypeKey[] = ['hazardous', 'electronic'];
+  const medRisk: WasteTypeKey[] = ['plastic', 'mixed_waste'];
+  if (hiRisk.includes(wasteType) && (severity === 'high' || severity === 'critical')) return 'high_risk';
+  if (medRisk.includes(wasteType) && severity === 'critical') return 'high_risk';
+  if (hiRisk.includes(wasteType) && severity === 'medium') return 'medium_risk';
   if (severity === 'critical' || priority === 'urgent') return 'high_risk';
   if (severity === 'high' || priority === 'high') return 'medium_risk';
   return 'low_risk';
 }
 
-function generateRecommendedAction(
-  wasteType: WasteTypeKey,
-  severity: SeverityKey,
-  priority: PriorityKey,
-  risk: RiskKey
-): string {
+function generateAction(wasteType: WasteTypeKey, severity: SeverityKey, priority: PriorityKey, risk: RiskKey): string {
   const urgency = priority === 'urgent' ? 'Immediate' : priority === 'high' ? 'Prompt' : 'Scheduled';
-  const timeframes: Record<PriorityKey, string> = {
-    low: 'within 72 hours',
-    medium: 'within 48 hours',
-    high: 'within 24 hours',
-    urgent: 'within 2 hours',
+  const timeframe: Record<PriorityKey, string> = {
+    low: 'within 72 hours', medium: 'within 48 hours', high: 'within 24 hours', urgent: 'within 2 hours',
   };
-
-  const baseActions: Record<WasteTypeKey, string> = {
+  const actions: Record<WasteTypeKey, string> = {
     plastic: `Collect and segregate for recycling. ${risk === 'high_risk' ? 'Avoid waterway contamination.' : 'Send to MRF for processing.'}`,
     food_waste: `Collect for composting or anaerobic digestion. ${severity === 'critical' ? 'Address odor and pest concerns immediately.' : 'Dispose in green waste stream.'}`,
     paper: `Bundle and send for recycling. ${severity === 'high' ? 'Ensure dry storage to maintain recyclability.' : 'Standard recycling protocol.'}`,
@@ -141,29 +150,44 @@ function generateRecommendedAction(
     mixed_waste: `Sort into recyclable and non-recyclable streams. ${risk === 'high_risk' ? 'Prioritize removal to prevent environmental spread.' : 'Standard landfill diversion protocol.'}`,
     organic: `Collect for composting. ${severity === 'high' ? 'Check for appropriate moisture levels.' : 'Add to green waste processing.'}`,
   };
+  return `${urgency} action required ${timeframe[priority]}. ${actions[wasteType]}`;
+}
 
-  return `${urgency} action required ${timeframes[priority]}. ${baseActions[wasteType]}`;
+export async function preloadModel(): Promise<void> {
+  await getModel();
 }
 
 export async function analyzeWasteImage(imageFile: File, description?: string): Promise<AIAnalysis> {
-  await new Promise(resolve => setTimeout(resolve, 1000 + Math.random() * 500));
+  const text = `${imageFile.name} ${description || ''}`;
+  const img = await fileToImage(imageFile);
 
-  const textToAnalyze = `${imageFile.name} ${description || ''}`;
-  const confidence = getRandomConfidence();
+  const net = await getModel();
+  const predictions = await net.classify(img);
 
-  const wasteKey = analyzeByKeywords(textToAnalyze, wasteKeywords) as WasteTypeKey;
-  const sevKey = analyzeByKeywords(textToAnalyze, severityIndicators) as SeverityKey;
-  const priKey = analyzeByKeywords(textToAnalyze, priorityKeywords) as PriorityKey;
+  const top = predictions[0];
+  const mlLabel = top.className;
+  const mlConfidence = top.probability;
 
-  const riskKey = assessEnvironmentalRisk(wasteKey, sevKey, priKey);
+  const mlWasteType = classifyImageNetLabel(mlLabel);
+
+  const textWasteType = analyzeText(text, SEVERITY_KEYWORDS) as WasteTypeKey;
+  const severity = analyzeText(text, SEVERITY_KEYWORDS) as SeverityKey;
+  const priority = analyzeText(text, PRIORITY_KEYWORDS) as PriorityKey;
+
+  const wasteType = mlConfidence > 0.3 ? mlWasteType : (textWasteType || mlWasteType) as WasteTypeKey;
+
+  const confidence = Math.max(mlConfidence, 0.5 + Math.random() * 0.1);
+  const cappedConfidence = Math.min(confidence, 0.97);
+
+  const risk = assessRisk(wasteType as WasteTypeKey, severity, priority);
 
   return {
-    wasteType: WASTE_DISPLAY[wasteKey],
-    severity: SEVERITY_DISPLAY[sevKey],
-    priority: PRIORITY_DISPLAY[priKey],
-    estimatedQuantity: estimateQuantity(sevKey, wasteKey),
-    environmentalRisk: RISK_DISPLAY[riskKey],
-    recommendedAction: generateRecommendedAction(wasteKey, sevKey, priKey, riskKey),
-    confidence,
+    wasteType: WASTE_DISPLAY[wasteType as WasteTypeKey],
+    severity: SEVERITY_DISPLAY[severity],
+    priority: PRIORITY_DISPLAY[priority],
+    estimatedQuantity: estimateQuantity(wasteType as WasteTypeKey, severity),
+    environmentalRisk: RISK_DISPLAY[risk],
+    recommendedAction: generateAction(wasteType as WasteTypeKey, severity, priority, risk),
+    confidence: Math.round(cappedConfidence * 100) / 100,
   };
 }

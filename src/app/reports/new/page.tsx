@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
-import { analyzeWasteImage } from "@/lib/ai";
+import { analyzeWasteImage, preloadModel } from "@/lib/ai";
 import { calculateDistance, findNearestCleaner, mapAnalysisToDb } from "@/lib/utils";
 import { AIAnalysis } from "@/types";
 import Navbar from "@/components/Navbar";
@@ -23,6 +23,8 @@ export default function NewReportPage() {
   const [analysis, setAnalysis] = useState<AIAnalysis | null>(null);
   const [error, setError] = useState("");
   const [step, setStep] = useState<"capture" | "analyze" | "submit">("capture");
+  const [analyzePhase, setAnalyzePhase] = useState<"idle" | "loading-model" | "classifying">("idle");
+  const [modelPreloaded, setModelPreloaded] = useState(false);
   const [userName, setUserName] = useState("");
 
   useEffect(() => {
@@ -33,6 +35,7 @@ export default function NewReportPage() {
         });
       }
     });
+    preloadModel().then(() => setModelPreloaded(true));
   }, []);
 
   const handleGetLocation = () => {
@@ -58,8 +61,13 @@ export default function NewReportPage() {
     setImagePreview(URL.createObjectURL(file));
     setStep("analyze");
     setAnalyzing(true);
+    setAnalyzePhase("loading-model");
 
     try {
+      if (!modelPreloaded) {
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+      setAnalyzePhase("classifying");
       const result = await analyzeWasteImage(file, description);
       setAnalysis(result);
       setStep("submit");
@@ -67,6 +75,7 @@ export default function NewReportPage() {
       setError("AI analysis failed. Please try again.");
     } finally {
       setAnalyzing(false);
+      setAnalyzePhase("idle");
     }
   };
 
@@ -208,9 +217,28 @@ export default function NewReportPage() {
           </div>
 
           {analyzing && (
-            <div className="glass-card rounded-2xl p-6 text-center">
+            <div className="glass-card rounded-2xl p-6 text-center space-y-3">
               <div className="animate-spin w-8 h-8 border-4 border-green-500 border-t-transparent rounded-full mx-auto mb-3"></div>
-              <p className="text-gray-500">AI is analyzing your waste image...</p>
+              {analyzePhase === "loading-model" && (
+                <>
+                  <div className="w-full bg-gray-200 rounded-full h-2 max-w-xs mx-auto overflow-hidden">
+                    <div className="h-full bg-gradient-to-r from-green-400 to-green-600 rounded-full animate-pulse" style={{ width: "60%" }}></div>
+                  </div>
+                  <p className="text-gray-500 font-medium">Loading AI Model...</p>
+                  <p className="text-xs text-gray-400">Downloading MobileNet neural network (~5MB)</p>
+                </>
+              )}
+              {analyzePhase === "classifying" && (
+                <>
+                  <div className="flex items-center justify-center gap-1">
+                    <span className="w-2 h-2 bg-green-500 rounded-full animate-bounce" style={{ animationDelay: "0ms" }}></span>
+                    <span className="w-2 h-2 bg-green-500 rounded-full animate-bounce" style={{ animationDelay: "150ms" }}></span>
+                    <span className="w-2 h-2 bg-green-500 rounded-full animate-bounce" style={{ animationDelay: "300ms" }}></span>
+                  </div>
+                  <p className="text-gray-500 font-medium">Classifying Waste...</p>
+                  <p className="text-xs text-gray-400">Running inference through 1000 ImageNet categories</p>
+                </>
+              )}
             </div>
           )}
 

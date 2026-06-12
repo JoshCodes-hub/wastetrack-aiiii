@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { UserRole } from "@/types";
+import { useTheme } from "@/lib/theme-context";
 
 interface NavbarProps {
   role: UserRole;
@@ -12,6 +13,7 @@ interface NavbarProps {
 
 export default function Navbar({ role, userName }: NavbarProps) {
   const router = useRouter();
+  const { theme, toggle } = useTheme();
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
@@ -45,14 +47,15 @@ export default function Navbar({ role, userName }: NavbarProps) {
   };
 
   return (
-    <nav className="sticky top-0 z-50 bg-white/80 backdrop-blur-lg border-b border-green-100">
+    <nav className="sticky top-0 z-50 backdrop-blur-lg border-b transition-colors"
+      style={{ background: "var(--nav-bg)", borderColor: "var(--card-border)" }}>
       <div className="max-w-7xl mx-auto px-4 sm:px-6">
         <div className="flex items-center justify-between h-16">
           <Link href={`/dashboard/${role}`} className="flex items-center gap-2">
             <div className="w-8 h-8 rounded-lg gradient-primary flex items-center justify-center">
               <span className="text-white font-bold text-xs">WT</span>
             </div>
-            <span className="font-bold text-lg text-green-900">WasteTrack</span>
+            <span className="font-bold text-lg" style={{ color: "var(--foreground)" }}>WasteTrack</span>
           </Link>
 
           <div className="hidden md:flex items-center gap-1">
@@ -60,7 +63,10 @@ export default function Navbar({ role, userName }: NavbarProps) {
               <Link
                 key={link.href}
                 href={link.href}
-                className="px-3 py-2 text-sm font-medium text-gray-600 hover:text-green-700 hover:bg-green-50 rounded-lg transition-all"
+                className="px-3 py-2 text-sm font-medium rounded-lg transition-all"
+                style={{ color: "var(--text-secondary)" }}
+                onMouseEnter={e => { e.currentTarget.style.color = "var(--primary)"; e.currentTarget.style.background = "rgba(22,163,74,0.1)"; }}
+                onMouseLeave={e => { e.currentTarget.style.color = "var(--text-secondary)"; e.currentTarget.style.background = "transparent"; }}
               >
                 {link.label}
               </Link>
@@ -68,13 +74,23 @@ export default function Navbar({ role, userName }: NavbarProps) {
           </div>
 
           <div className="flex items-center gap-3">
+            <button
+              onClick={toggle}
+              className="p-2 rounded-lg transition-all"
+              style={{ color: "var(--text-secondary)" }}
+              onMouseEnter={e => { e.currentTarget.style.background = "rgba(22,163,74,0.1)"; }}
+              onMouseLeave={e => { e.currentTarget.style.background = "transparent"; }}
+              title={theme === "dark" ? "Light mode" : "Dark mode"}
+            >
+              {theme === "dark" ? "☀️" : "🌙"}
+            </button>
             <div className="flex items-center gap-2">
               <div className={`w-2 h-2 rounded-full ${roleColors[role]}`}></div>
-              <span className="text-sm text-gray-600 capitalize">{userName || role}</span>
+              <span className="text-sm capitalize" style={{ color: "var(--text-secondary)" }}>{userName || role}</span>
             </div>
             <button
               onClick={handleLogout}
-              className="px-3 py-1.5 text-sm font-medium text-red-600 hover:bg-red-50 rounded-lg transition-all"
+              className="px-3 py-1.5 text-sm font-medium text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-all"
             >
               Logout
             </button>

@@ -37,6 +37,7 @@ CREATE TABLE IF NOT EXISTS cleaners (
   latitude DOUBLE PRECISION,
   longitude DOUBLE PRECISION,
   is_active BOOLEAN DEFAULT false,
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 

@@ -6,6 +6,7 @@ import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { Report, Cleaner, SmartBin, Assignment } from "@/types";
 import Navbar from "@/components/Navbar";
+import { showToast } from "@/components/NotificationToast";
 import DashboardCard from "@/components/DashboardCard";
 import MapViewWrapper from "@/components/MapViewWrapper";
 
@@ -87,8 +88,14 @@ export default function AdminDashboard() {
       .on("postgres_changes", { event: "*", schema: "public", table: "reports" }, (payload) => {
         const current = reportsRef.current;
         if (payload.eventType === "INSERT") {
-          setReports(prev => [payload.new as Report, ...prev]);
-          setRecentReports(prev => [payload.new as Report, ...prev.slice(0, 4)]);
+          const r = payload.new as Report;
+          setReports(prev => [r, ...prev]);
+          setRecentReports(prev => [r, ...prev.slice(0, 4)]);
+          showToast({
+            title: "New Waste Report",
+            message: `${r.waste_type.replace(/_/g, " ")} reported — ${r.priority} priority`,
+            type: r.priority === "urgent" ? "warning" : "info",
+          });
         } else if (payload.eventType === "DELETE") {
           setReports(prev => prev.filter(r => r.id !== payload.old.id));
         } else {
@@ -113,16 +120,28 @@ export default function AdminDashboard() {
     const binsSub = supabase
       .channel("admin-bins")
       .on("postgres_changes", { event: "*", schema: "public", table: "smart_bins" }, (payload) => {
-        if (payload.eventType === "INSERT") setBins(prev => [...prev, payload.new as SmartBin]);
+        if (payload.eventType === "INSERT") {
+          const b = payload.new as SmartBin;
+          setBins(prev => [...prev, b]);
+          if (b.status === "full") showToast({ title: "Bin Full", message: `Bin at ${b.latitude?.toFixed(4)},${b.longitude?.toFixed(4)} needs emptying`, type: "warning" });
+        }
         else if (payload.eventType === "DELETE") setBins(prev => prev.filter(b => b.id !== payload.old.id));
-        else setBins(prev => prev.map(b => b.id === payload.new.id ? payload.new as SmartBin : b));
+        else {
+          const b = payload.new as SmartBin;
+          setBins(prev => prev.map(p => p.id === b.id ? b : p));
+          if (b.status === "full") showToast({ title: "Bin Full", message: `Bin at ${b.latitude?.toFixed(4)},${b.longitude?.toFixed(4)}`, type: "warning" });
+        }
       })
       .subscribe();
 
     const assignmentsSub = supabase
       .channel("admin-assignments")
       .on("postgres_changes", { event: "*", schema: "public", table: "assignments" }, (payload) => {
-        if (payload.eventType === "INSERT") setAssignments(prev => [payload.new as Assignment, ...prev]);
+        if (payload.eventType === "INSERT") {
+          const a = payload.new as Assignment;
+          setAssignments(prev => [a, ...prev]);
+          showToast({ title: "New Assignment", message: `Report ${a.report_id.slice(0, 8)} assigned to ${a.cleaner_id.slice(0, 8)}`, type: "info" });
+        }
         else if (payload.eventType === "DELETE") setAssignments(prev => prev.filter(a => a.id !== payload.old.id));
         else setAssignments(prev => prev.map(a => a.id === payload.new.id ? payload.new as Assignment : a));
       })

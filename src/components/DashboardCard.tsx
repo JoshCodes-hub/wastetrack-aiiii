@@ -16,12 +16,12 @@ export default function DashboardCard({ title, value, icon, color = "green", sub
   };
 
   return (
-    <div className="glass-card rounded-2xl p-6 hover:shadow-lg transition-all">
+    <div className="glass-card rounded-2xl p-6 hover:shadow-lg transition-all" style={{ background: "var(--card-bg)", borderColor: "var(--card-border)" }}>
       <div className="flex items-start justify-between">
         <div className="space-y-2">
-          <p className="text-sm font-medium text-gray-500">{title}</p>
-          <p className="text-3xl font-bold text-gray-900">{value}</p>
-          {subtitle && <p className="text-xs text-gray-400">{subtitle}</p>}
+          <p className="text-sm font-medium" style={{ color: "var(--text-secondary)" }}>{title}</p>
+          <p className="text-3xl font-bold" style={{ color: "var(--foreground)" }}>{value}</p>
+          {subtitle && <p className="text-xs" style={{ color: "var(--text-secondary)" }}>{subtitle}</p>}
         </div>
         <div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${colorClasses[color]} flex items-center justify-center text-2xl shadow-lg`}>
           {icon}

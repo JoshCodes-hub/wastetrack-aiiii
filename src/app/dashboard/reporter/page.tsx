@@ -8,6 +8,7 @@ import { Report } from "@/types";
 import Navbar from "@/components/Navbar";
 import DashboardCard from "@/components/DashboardCard";
 import ReportCard from "@/components/ReportCard";
+import Leaderboard from "@/components/Leaderboard";
 
 export default function ReporterDashboard() {
   const router = useRouter();
@@ -70,8 +71,9 @@ export default function ReporterDashboard() {
           <DashboardCard title="Completed" value={stats.completed} icon="✅" color="blue" />
         </div>
 
-        <div>
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">Your Reports</h2>
+        <div className="grid lg:grid-cols-3 gap-6">
+          <div className="lg:col-span-2">
+          <h2 className="text-lg font-semibold mb-4" style={{ color: "var(--foreground)" }}>Your Reports</h2>
           {reports.length === 0 ? (
             <div className="text-center py-16 glass-card rounded-2xl">
               <div className="text-5xl mb-4">📸</div>
@@ -94,6 +96,10 @@ export default function ReporterDashboard() {
               ))}
             </div>
           )}
+          </div>
+          <div>
+            <Leaderboard />
+          </div>
         </div>
       </main>
     </div>
