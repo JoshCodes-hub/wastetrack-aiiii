@@ -64,7 +64,7 @@ export default function AdminBinsPage() {
       });
       handleFullBin(newBin);
     }
-    if (newBin.status !== "full") {
+    if (newBin.status !== "full" && newBin.status !== "FULL") {
       alreadyFull.current.delete(newBin.bin_id);
     }
   }, []);
@@ -78,7 +78,7 @@ export default function AdminBinsPage() {
       id: reportId,
       user_id: user.data.user?.id,
       image_url: "/placeholder-bin.svg",
-      description: `Auto-generated: Smart bin ${bin.name} (${bin.bin_id}) is full at ${bin.latitude?.toFixed(4)},${bin.longitude?.toFixed(4)}`,
+      description: `Auto-generated: Smart bin ${bin.name} (${bin.bin_id}) is full at ${bin.latitude ? bin.latitude.toFixed(4) : 'GPS acquiring'},${bin.longitude ? bin.longitude.toFixed(4) : 'GPS acquiring'}`,
       latitude: bin.latitude || 0,
       longitude: bin.longitude || 0,
       waste_type: "mixed_waste",
