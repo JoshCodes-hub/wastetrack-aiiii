@@ -200,6 +200,7 @@ bool sendToSupabase(float lat, float lng, float fillLevel, String status) {
 
   String jsonBody = "{";
   jsonBody += "\"bin_id\":\"" + String(BIN_ID) + "\",";
+  jsonBody += "\"name\":\"ESP32 Bin 1\",";
   jsonBody += "\"latitude\":" + (hasValidGps ? String(lat, 6) : "null") + ",";
   jsonBody += "\"longitude\":" + (hasValidGps ? String(lng, 6) : "null") + ",";
   jsonBody += "\"fill_level\":" + String((int)fillLevel) + ",";
