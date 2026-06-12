@@ -253,13 +253,16 @@ void postToSupabase() {
   // Build status string from fill level
   String statusStr;
   if (lastFillPercent < 0) {
-    statusStr = "empty";
+    statusStr = "LOW";
   } else if (lastFillPercent < 30) {
-    statusStr = "empty";
+    statusStr = "LOW";
   } else if (lastFillPercent < 80) {
-    statusStr = "half_full";
+    statusStr = "MEDIUM";
   } else {
-    statusStr = "full";
+    statusStr = "HIGH";
+  }
+  if (statusStr == "HIGH" && lastFillPercent >= 95) {
+    statusStr = "FULL";
   }
 
   // Build ISO timestamp
