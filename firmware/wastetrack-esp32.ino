@@ -189,18 +189,19 @@ void connectWiFi() {
 // =====================
 bool sendToSupabase(float lat, float lng, float fillLevel, String status) {
   if (WiFi.status() != WL_CONNECTED) {
-    Serial.println("WiFi lost — reconnecting...");
-    connectWiFi();
-    if (WiFi.status() != WL_CONNECTED) return false;
+    Serial.println("❌ No WiFi — can't send. Check hotspot is on!");
+    return false;
   }
 
   String timestamp = getTimestamp();
   if (timestamp == "") timestamp = "2026-06-12T12:00:00Z";
 
+  bool hasValidGps = (lat != 0.0 || lng != 0.0);
+
   String jsonBody = "{";
   jsonBody += "\"bin_id\":\"" + String(BIN_ID) + "\",";
-  jsonBody += "\"latitude\":" + String(lat, 6) + ",";
-  jsonBody += "\"longitude\":" + String(lng, 6) + ",";
+  jsonBody += "\"latitude\":" + (hasValidGps ? String(lat, 6) : "null") + ",";
+  jsonBody += "\"longitude\":" + (hasValidGps ? String(lng, 6) : "null") + ",";
   jsonBody += "\"fill_level\":" + String((int)fillLevel) + ",";
   jsonBody += "\"status\":\"" + status + "\",";
   jsonBody += "\"last_updated\":\"" + timestamp + "\"";
@@ -274,6 +275,15 @@ void setup() {
 // LOOP
 // =====================
 void loop() {
+  // Check WiFi every loop
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("❌ WiFi disconnected — reconnecting...");
+    connectWiFi();
+  } else {
+    static bool printed = false;
+    if (!printed) { Serial.println("✅ WiFi OK — IP: " + WiFi.localIP().toString()); printed = true; }
+  }
+
   Serial.println("\n=== New Reading ===");
 
   // STEP 1 — Ultrasonic
@@ -294,12 +304,8 @@ void loop() {
   float lng = 0.0;
   bool gotGPS = getGPS(lat, lng);
 
-  // STEP 3 — Send to Supabase (only if we have GPS)
-  if (gotGPS) {
-    sendToSupabase(lat, lng, fillLevel, status);
-  } else {
-    Serial.println("⏳ Waiting for GPS fix");
-  }
+  // STEP 3 — Send to Supabase (even without GPS — dashboard shows "Acquiring location...")
+  sendToSupabase(lat, lng, fillLevel, status);
 
   Serial.println("💤 Sleeping 3 seconds...");
   delay(3000);
