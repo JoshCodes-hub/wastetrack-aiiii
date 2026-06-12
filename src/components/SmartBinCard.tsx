@@ -17,7 +17,10 @@ function getSecondsAgo(dateStr: string): number {
 export default function SmartBinCard({ bin, hasData, onClick }: SmartBinCardProps) {
   const [secondsAgo, setSecondsAgo] = useState(() => getSecondsAgo(bin.last_updated));
   const hasGps = bin.latitude != null && bin.longitude != null;
+  const hasFill = bin.fill_level != null && bin.fill_level > 0;
   const isOnline = secondsAgo <= 120;
+  const fillValue = bin.fill_level || 0;
+  const barColor = fillValue > 80 ? "bg-red-500" : fillValue > 40 ? "bg-yellow-500" : "bg-green-500";
 
   useEffect(() => {
     setSecondsAgo(getSecondsAgo(bin.last_updated));
@@ -26,8 +29,6 @@ export default function SmartBinCard({ bin, hasData, onClick }: SmartBinCardProp
     }, 1000);
     return () => clearInterval(interval);
   }, [bin.last_updated]);
-
-  const barColor = bin.fill_level > 80 ? "bg-red-500" : bin.fill_level > 40 ? "bg-yellow-500" : "bg-green-500";
 
   return (
     <div
@@ -61,17 +62,17 @@ export default function SmartBinCard({ bin, hasData, onClick }: SmartBinCardProp
         <div>
           <div className="flex justify-between text-sm mb-1">
             <span style={{ color: "var(--text-secondary)" }}>Fill Level</span>
-            {hasData ? (
+            {hasFill ? (
               <span className="font-medium" style={{ color: "var(--foreground)" }}>{bin.fill_level}%</span>
             ) : (
               <span className="italic text-yellow-600 dark:text-yellow-400 animate-pulse">Reading...</span>
             )}
           </div>
           <div className="w-full h-3 rounded-full" style={{ background: "var(--card-border)" }}>
-            {hasData ? (
+            {hasFill ? (
               <div
                 className={`h-full rounded-full transition-all duration-700 ease-out ${barColor}`}
-                style={{ width: `${bin.fill_level}%` }}
+                style={{ width: `${fillValue}%` }}
               />
             ) : (
               <div className="h-full rounded-full bg-gray-300 dark:bg-gray-600" style={{ width: "3%" }} />
