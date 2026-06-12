@@ -18,9 +18,10 @@ function getSecondsAgo(dateStr: string): number {
 export default function SmartBinCard({ bin, hasData, onClick }: SmartBinCardProps) {
   const [secondsAgo, setSecondsAgo] = useState(() => getSecondsAgo(bin.last_updated));
   const hasGps = bin.latitude != null && bin.longitude != null;
-  const hasFill = bin.fill_level != null && bin.fill_level > 0;
+  const hasFill = bin.fill_level != null;
   const isOnline = secondsAgo <= 120;
-  const fillValue = bin.fill_level || 0;
+  const fillValue = bin.fill_level ?? 0;
+  const displayBarWidth = Math.max(fillValue, 4);
   const barColor = fillValue > 80 ? "bg-red-500" : fillValue > 40 ? "bg-yellow-500" : "bg-green-500";
   const locationName = useReverseGeocode(bin.latitude, bin.longitude);
 
@@ -80,7 +81,7 @@ export default function SmartBinCard({ bin, hasData, onClick }: SmartBinCardProp
             {hasFill ? (
               <div
                 className={`h-full rounded-full transition-all duration-700 ease-out ${barColor}`}
-                style={{ width: `${fillValue}%` }}
+                style={{ width: `${displayBarWidth}%` }}
               />
             ) : (
               <div className="h-full rounded-full bg-gray-300 dark:bg-gray-600" style={{ width: "3%" }} />
