@@ -106,48 +106,57 @@ void powerOnA9G() {
 // GPS
 // =====================
 bool getGPS(float &lat, float &lng) {
-  A9G.println("AT+LOCATION=2");
-  delay(1000);
-  String resp = "";
-  while (A9G.available()) {
-    char c = A9G.read();
-    resp += c;
-  }
-
-  int comma = resp.indexOf(',');
-  if (comma > 5 && resp.indexOf("NOT FIX") < 0 && resp.indexOf("0.000000") < 0) {
-    String latStr = resp.substring(0, comma);
-    String lngStr = resp.substring(comma + 1);
-    latStr.trim();
-    lngStr.trim();
-
-    // Remove non-numeric chars at end
-    while (lngStr.length() > 0 && !isdigit(lngStr.charAt(lngStr.length() - 1)) && lngStr.charAt(lngStr.length() - 1) != '.') {
-      lngStr.remove(lngStr.length() - 1);
-    }
-
-    float newLat = latStr.toFloat();
-    float newLng = lngStr.toFloat();
-
-    if (newLat != 0.0 && newLng != 0.0) {
-      lastLat = newLat;
-      lastLng = newLng;
-      gpsFixed = true;
-      lat = lastLat;
-      lng = lastLng;
-      Serial.println("📍 GPS: " + String(lat, 6) + ", " + String(lng, 6));
-      return true;
-    }
-  }
-
   if (gpsFixed) {
     lat = lastLat;
     lng = lastLng;
-    Serial.println("📍 Last GPS: " + String(lat, 6) + ", " + String(lng, 6));
     return true;
   }
 
-  Serial.println("⏳ No GPS yet");
+  // Retry up to 3 times
+  for (int attempt = 0; attempt < 3; attempt++) {
+    A9G.println("AT+LOCATION=2");
+    String resp = "";
+    long start = millis();
+    while (millis() - start < 2000) {
+      while (A9G.available()) {
+        char c = A9G.read();
+        resp += c;
+      }
+      delay(5);
+    }
+
+    // Look for GPS pattern: two numbers separated by comma
+    int comma = resp.indexOf(',');
+    if (comma > 3) {
+      // Find start of GPS data (after newline)
+      int nl = resp.lastIndexOf('\n', comma);
+      int startIdx = (nl >= 0) ? nl + 1 : 0;
+      String latStr = resp.substring(startIdx, comma);
+      String lngStr = resp.substring(comma + 1);
+      latStr.trim();
+      lngStr.trim();
+
+      // Remove trailing non-numeric
+      while (lngStr.length() > 0 && !isdigit(lngStr.charAt(lngStr.length() - 1)) && lngStr.charAt(lngStr.length() - 1) != '.') {
+        lngStr.remove(lngStr.length() - 1);
+      }
+
+      float newLat = latStr.toFloat();
+      float newLng = lngStr.toFloat();
+
+      if (newLat > 0.1 && newLng > 0.1) {
+        lastLat = newLat;
+        lastLng = newLng;
+        gpsFixed = true;
+        lat = lastLat;
+        lng = lastLng;
+        Serial.println("📍 GPS: " + String(lat, 6) + ", " + String(lng, 6));
+        return true;
+      }
+    }
+  }
+
+  Serial.println("⏳ No GPS yet — go outside for clear sky");
   return false;
 }
 
