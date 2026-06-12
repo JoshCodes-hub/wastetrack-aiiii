@@ -163,7 +163,7 @@ export default function MapView({
                 <div className="flex items-center gap-2">
                   <div className="w-full rounded-full h-2" style={{ background: "var(--card-border)" }}>
                     <div className={`h-2 rounded-full ${
-                      bin.fill_level > 80 ? 'bg-red-500' :
+                      bin.fill_level > 80 || bin.status === "FULL" || bin.status === "full" ? 'bg-red-500' :
                       bin.fill_level > 40 ? 'bg-yellow-500' : 'bg-green-500'
                     }`} style={{ width: `${bin.fill_level}%` }} />
                   </div>

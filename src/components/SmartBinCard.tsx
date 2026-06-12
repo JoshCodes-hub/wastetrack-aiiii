@@ -44,7 +44,8 @@ export default function SmartBinCard({ bin, hasData, onClick }: SmartBinCardProp
         <div className="flex items-center gap-2">
           {isOnline && <span className="w-2 h-2 rounded-full bg-green-500" title="Online" />}
           <div className={`px-3 py-1 rounded-full text-xs font-medium text-white ${
-            bin.status === "full" ? "bg-red-500" : bin.status === "half_full" ? "bg-yellow-500" : "bg-green-500"
+            bin.status === "full" || bin.status === "FULL" || bin.status === "HIGH" ? "bg-red-500" :
+            bin.status === "half_full" || bin.status === "MEDIUM" ? "bg-yellow-500" : "bg-green-500"
           }`}>
             {getStatusLabel(bin.status)}
           </div>

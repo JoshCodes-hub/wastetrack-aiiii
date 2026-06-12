@@ -10,7 +10,7 @@ export type PriorityLevel = 'low' | 'medium' | 'high' | 'urgent';
 
 export type EnvironmentalRisk = 'low_risk' | 'medium_risk' | 'high_risk';
 
-export type BinStatus = 'empty' | 'half_full' | 'full';
+export type BinStatus = 'empty' | 'half_full' | 'full' | 'LOW' | 'MEDIUM' | 'HIGH' | 'FULL';
 
 export interface User {
   id: string;

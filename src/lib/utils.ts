@@ -47,10 +47,14 @@ export function getStatusColor(status: string): string {
     case 'completed':
       return 'bg-green-500';
     case 'empty':
+    case 'LOW':
       return 'bg-green-400';
     case 'half_full':
+    case 'MEDIUM':
       return 'bg-yellow-500';
     case 'full':
+    case 'HIGH':
+    case 'FULL':
       return 'bg-red-500';
     default:
       return 'bg-gray-500';

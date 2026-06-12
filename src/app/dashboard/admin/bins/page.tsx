@@ -54,7 +54,8 @@ export default function AdminBinsPage() {
       return [newBin, ...prev];
     });
 
-    if (newBin.status === "full" && !alreadyFull.current.has(newBin.bin_id)) {
+    const isFull = newBin.status === "full" || newBin.status === "FULL";
+    if (isFull && !alreadyFull.current.has(newBin.bin_id)) {
       alreadyFull.current.add(newBin.bin_id);
       showToast({
         title: "Bin Full!",
@@ -127,9 +128,9 @@ export default function AdminBinsPage() {
     return () => { supabase.removeChannel(binsSub); };
   }, [handleBinUpsert]);
 
-  const fullBins = bins.filter(b => b.status === "full");
-  const halfBins = bins.filter(b => b.status === "half_full");
-  const emptyBins = bins.filter(b => b.status === "empty");
+  const fullBins = bins.filter(b => b.status === "full" || b.status === "FULL" || b.status === "HIGH");
+  const halfBins = bins.filter(b => b.status === "half_full" || b.status === "MEDIUM");
+  const emptyBins = bins.filter(b => b.status === "empty" || b.status === "LOW");
 
   return (
     <div className="min-h-screen transition-colors" style={{ background: "var(--background)" }}>
