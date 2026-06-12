@@ -217,7 +217,7 @@ bool sendToSupabase(float lat, float lng, float fillLevel, String status) {
   }
 
   HTTPClient http;
-  http.begin(*client, SUPABASE_URL);
+  http.begin(*client, String(SUPABASE_URL) + "?on_conflict=bin_id");
   http.addHeader("Content-Type", "application/json");
   http.addHeader("apikey", ANON_KEY);
   http.addHeader("Authorization", String("Bearer ") + ANON_KEY);
